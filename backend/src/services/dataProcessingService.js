@@ -102,45 +102,73 @@ class DataProcessingService {
 
   calculateDataQuality({ orders, orderItems, products, shipments, joinedRows }) {
     const invalidRecords = [];
+    const orderIds = new Set();
 
     for (const order of orders) {
-      if (!order.customer_id) invalidRecords.push({ type: 'order', id: order.order_id, issue: 'Missing customer ID' });
-      if (!order.order_date) invalidRecords.push({ type: 'order', id: order.order_id, issue: 'Missing order date' });
+      const orderId = String(order?.order_id || '').trim();
+      if (!orderId) {
+        invalidRecords.push({ type: 'order', id: 'unknown', issue: 'Missing order ID' });
+      } else if (orderIds.has(orderId)) {
+        invalidRecords.push({ type: 'order', id: orderId, issue: 'Duplicate order ID' });
+      } else {
+        orderIds.add(orderId);
+      }
+
+      if (!order?.customer_id) invalidRecords.push({ type: 'order', id: orderId || 'unknown', issue: 'Missing customer ID' });
+      if (!order?.order_date) invalidRecords.push({ type: 'order', id: orderId || 'unknown', issue: 'Missing order date' });
     }
 
     for (const item of orderItems) {
-      if (!item.product_id) invalidRecords.push({ type: 'order_item', id: item.order_id, issue: 'Missing product ID' });
-      if (Number(item.quantity) <= 0 || Number.isNaN(Number(item.quantity))) invalidRecords.push({ type: 'order_item', id: item.order_id, issue: 'Invalid quantity' });
-      if (Number(item.unit_price) < 0 || Number.isNaN(Number(item.unit_price))) invalidRecords.push({ type: 'order_item', id: item.order_id, issue: 'Invalid price' });
+      const orderId = String(item?.order_id || '').trim() || 'unknown';
+      if (!item?.product_id) invalidRecords.push({ type: 'order_item', id: orderId, issue: 'Missing product ID' });
+      if (Number(item?.quantity) <= 0 || Number.isNaN(Number(item?.quantity))) invalidRecords.push({ type: 'order_item', id: orderId, issue: 'Invalid quantity' });
+      if (Number(item?.unit_price) < 0 || Number.isNaN(Number(item?.unit_price))) invalidRecords.push({ type: 'order_item', id: orderId, issue: 'Invalid price' });
     }
 
     for (const product of products) {
-      if (!product.product_id) invalidRecords.push({ type: 'product', id: product.product_name || 'unknown', issue: 'Missing product ID' });
+      if (!product?.product_id) invalidRecords.push({ type: 'product', id: product?.product_name || 'unknown', issue: 'Missing product ID' });
     }
 
     const unmatchedProducts = joinedRows.filter((row) => !row.matchedProduct).length;
-    const unmatchedShipments = shipments.filter((shipment) => !shipment.order_id).length;
-    const duplicateOrderIds = new Set();
-    const duplicateRecords = [];
-    for (const order of orders) {
-      if (duplicateOrderIds.has(order.order_id)) {
-        duplicateRecords.push(order.order_id);
-      } else {
-        duplicateOrderIds.add(order.order_id);
-      }
+    for (const row of joinedRows.filter((entry) => !entry.matchedProduct)) {
+      invalidRecords.push({ type: 'product', id: row.product_id || 'unknown', issue: 'Unmatched product' });
     }
+
+    const validOrderIds = new Set(
+      orders
+        .map((order) => String(order?.order_id || '').trim())
+        .filter(Boolean),
+    );
+
+    const unmatchedShipments = shipments.filter((shipment) => {
+      const shipmentOrderId = String(shipment?.order_id || '').trim();
+      return !shipmentOrderId || !validOrderIds.has(shipmentOrderId);
+    });
+
+    for (const shipment of unmatchedShipments) {
+      const shipmentOrderId = String(shipment?.order_id || '').trim();
+      invalidRecords.push({
+        type: 'shipment',
+        id: shipment?.shipment_id || shipmentOrderId || 'unknown',
+        issue: shipmentOrderId ? 'Unmatched shipment' : 'Missing order ID',
+      });
+    }
+
+    const totalRecords = orders.length + orderItems.length + products.length + shipments.length;
+    const validRecords = Math.max(0, totalRecords - invalidRecords.length);
+    const duplicateRecords = invalidRecords.filter((issue) => issue.issue === 'Duplicate order ID').length;
 
     return {
       totalOrders: orders.length,
       totalProducts: products.length,
       totalOrderItems: orderItems.length,
       totalShipments: shipments.length,
-      validRecords: Math.max(0, orders.length + orderItems.length + products.length + shipments.length - invalidRecords.length),
+      validRecords,
       invalidRecords: invalidRecords.length,
-      duplicateRecords: duplicateRecords.length,
+      duplicateRecords,
       missingValues: invalidRecords.filter((entry) => /Missing|Invalid/.test(entry.issue)).length,
       unmatchedProducts,
-      unmatchedShipments,
+      unmatchedShipments: unmatchedShipments.length,
       details: invalidRecords,
     };
   }

@@ -28,6 +28,8 @@ export default function ShipmentsPage() {
         <div className="rounded-xl bg-white p-6 text-slate-600 shadow-sm">Loading shipments…</div>
       ) : error ? (
         <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-700">{error}</div>
+      ) : shipments.length === 0 ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-amber-800">Shipment data not loaded. Upload Shipment.xml to enable shipment analytics.</div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           <table className="min-w-full text-sm">

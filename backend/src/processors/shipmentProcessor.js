@@ -17,16 +17,14 @@ function attachShipmentData(orders, shipments) {
       shipment: shipment || null,
     };
 
-    if (shipment && shipment.shipment_date && shipment.delivery_date) {
-      const delayDays = differenceInDays(shipment.delivery_date, shipment.delivery_date);
-      withShipment.delivery_delay_days = delayDays;
-      withShipment.is_delayed = Boolean(delayDays && delayDays > 0);
-    }
-
-    if (shipment && shipment.shipment_date && shipment.delivery_date && shipment.expected_delivery_date) {
+    if (shipment && shipment.delivery_date && shipment.expected_delivery_date) {
       const actualDelay = differenceInDays(shipment.expected_delivery_date, shipment.delivery_date);
       withShipment.delivery_delay_days = actualDelay;
       withShipment.is_delayed = actualDelay > 0;
+    } else if (shipment && shipment.shipment_date && shipment.delivery_date) {
+      const durationDays = differenceInDays(shipment.shipment_date, shipment.delivery_date);
+      withShipment.delivery_duration_days = durationDays;
+      withShipment.is_delayed = false;
     }
 
     return withShipment;

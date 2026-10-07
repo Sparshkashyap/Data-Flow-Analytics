@@ -101,6 +101,49 @@ describe('Backend processing tests', () => {
     expect(dataset.summary.averageOrderValue).toBe(1400);
   });
 
+  it('flags shipments as unmatched when their order IDs are missing from the normalized orders data', () => {
+    const repo = new InMemoryRepository();
+    const service = new DataProcessingService(repo);
+
+    repo.setOrders([
+      { order_id: '1001', customer_id: 'C001', customer_name: 'Rahul', order_date: '2024-01-01' },
+      { order_id: '1002', customer_id: 'C002', customer_name: 'Anita', order_date: '2024-01-02' },
+    ]);
+    repo.setOrderItems([
+      { order_id: '1001', product_id: 'P101', quantity: 2, unit_price: 500, line_total: 1000 },
+      { order_id: '1002', product_id: 'P103', quantity: 3, unit_price: 200, line_total: 600 },
+    ]);
+    repo.setProducts([
+      { product_id: 'P101', product_name: 'Laptop', category: 'Electronics' },
+      { product_id: 'P103', product_name: 'Chair', category: 'Furniture' },
+    ]);
+    repo.setShipments([
+      { shipment_id: 'S1', order_id: '1001', shipment_date: '2024-01-03', delivery_date: '2024-01-08', expected_delivery_date: '2024-01-05', shipment_status: 'delivered' },
+      { shipment_id: 'S2', order_id: '9999', shipment_date: '2024-01-09', delivery_date: '2024-01-10', shipment_status: 'pending' },
+    ]);
+
+    const dataset = service.buildDataset();
+    expect(dataset.dataQuality.unmatchedShipments).toBe(1);
+    expect(dataset.dataQuality.details.some((issue) => issue.issue === 'Unmatched shipment')).toBe(true);
+  });
+
+  it('separates delivery delay from delivery duration when expected delivery dates are absent', () => {
+    const { calculateShipmentAnalytics } = require('../processors/analyticsProcessor.js');
+    const analytics = calculateShipmentAnalytics([
+      {
+        shipment_id: 'S1',
+        order_id: '1001',
+        shipment_date: '2024-01-03',
+        delivery_date: '2024-01-08',
+        shipment_status: 'delivered',
+      },
+    ]);
+
+    expect(analytics.delays[0].deliveryDurationDays).toBe(5);
+    expect(analytics.delays[0].isDelayed).toBe(false);
+    expect(analytics.delays[0].deliveryDelayDays).toBeUndefined();
+  });
+
   it('validates request parameters and catches malformed payloads', () => {
     expect(() => parseJsonFile(path.join(__dirname, 'missing.json'))).toThrow();
   });

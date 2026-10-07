@@ -6,6 +6,12 @@ function buildSummary(orders, orderItems, products, shipments, joinedRows) {
   const totalItems = joinedRows.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
   const averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
+  const orderIds = new Set(
+    orders
+      .map((order) => String(order?.order_id || '').trim())
+      .filter(Boolean),
+  );
+
   const ordersByDate = {};
   const revenueByDate = {};
 
@@ -16,7 +22,10 @@ function buildSummary(orders, orderItems, products, shipments, joinedRows) {
   }
 
   const totalShipments = shipments.length;
-  const matchedShipments = shipments.filter((row) => row && row.order_id).length;
+  const matchedShipments = shipments.filter((row) => {
+    if (!row || !row.order_id) return false;
+    return orderIds.has(String(row.order_id).trim());
+  }).length;
 
   return {
     totalOrders,
@@ -129,7 +138,7 @@ function calculateShipmentAnalytics(shipments) {
   const statusMap = new Map();
 
   for (const shipment of shipments) {
-    const status = shipment.shipment_status || 'Unknown';
+    const status = shipment?.shipment_status || 'Unknown';
     if (!statusMap.has(status)) {
       statusMap.set(status, 0);
     }
@@ -140,21 +149,38 @@ function calculateShipmentAnalytics(shipments) {
 
   const delays = [];
   for (const shipment of shipments) {
-    if (!shipment || !shipment.shipment_date || !shipment.delivery_date) continue;
+    if (!shipment) continue;
 
     const actualDate = safeDate(shipment.delivery_date);
-    const expectedDate = safeDate(shipment.expected_delivery_date) || safeDate(shipment.shipment_date);
-    if (!actualDate || !expectedDate) continue;
+    const expectedDate = safeDate(shipment.expected_delivery_date);
+    const shipmentDate = safeDate(shipment.shipment_date);
 
-    const days = differenceInDays(expectedDate, actualDate);
-    if (days === null) continue;
+    if (!actualDate) continue;
 
-    delays.push({
+    const metric = {
       shipment_id: shipment.shipment_id,
       order_id: shipment.order_id,
-      deliveryDelayDays: days,
-      isDelayed: days > 0,
-    });
+      shipment_status: shipment.shipment_status || null,
+    };
+
+    if (expectedDate) {
+      const delayDays = differenceInDays(expectedDate, actualDate);
+      if (delayDays !== null) {
+        metric.deliveryDelayDays = delayDays;
+        metric.isDelayed = delayDays > 0;
+        delays.push(metric);
+      }
+      continue;
+    }
+
+    if (shipmentDate) {
+      const durationDays = differenceInDays(shipmentDate, actualDate);
+      if (durationDays !== null) {
+        metric.deliveryDurationDays = durationDays;
+        metric.isDelayed = false;
+        delays.push(metric);
+      }
+    }
   }
 
   return { statusDistribution, delays };
